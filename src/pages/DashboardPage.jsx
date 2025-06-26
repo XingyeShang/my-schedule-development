@@ -37,21 +37,22 @@ export default function DashboardPage() {
     navigate('/login');
   };
 
-  const handleSaveEvent = async (eventData) => {
+ const handleSaveEvent = async (eventData) => {
     try {
+      const payload = {
+        ...eventData,
+        recurrence: eventData.recurrence === 'none' ? null : eventData.recurrence,
+      };
       if (selectedEvent) {
-        // 更新逻辑
-        await api.put(`/events/${selectedEvent.id}`, eventData);
-      } else {
-        // 新建逻辑（理论上这个页面不处理新建，但保留以防万一）
-        await api.post('/events', eventData);
+        await api.put(`/events/${selectedEvent.id}`, payload);
       }
+      // 【关键改动】新建逻辑已移至日历页面，这里只处理编辑
       setIsDialogOpen(false);
       setSelectedEvent(null);
-      fetchEvents(); // 刷新列表
+      fetchEvents();
     } catch (err) {
-      console.error("保存失败", err);
-      alert("保存失败，请检查您的输入。");
+        console.error("保存失败", err);
+        alert("保存失败，请检查您的输入。");
     }
   };
 
@@ -164,7 +165,7 @@ export default function DashboardPage() {
           </div>
         </main>
       </div>
-      <EventDialog 
+     <EventDialog 
           isOpen={isDialogOpen} 
           setIsOpen={setIsDialogOpen}
           onSave={handleSaveEvent}

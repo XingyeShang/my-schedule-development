@@ -100,12 +100,11 @@ export default function CalendarPage() {
         </div>
       </div>
       
-      <EventDialog
+     <EventDialog
         isOpen={isDialogOpen}
         setIsOpen={setIsDialogOpen}
         onSave={handleSaveEvent}
-        event={null}
-        isTimeOnly={true}
+        event={null} // 在日历页总是新建模式
       />
     </div>
   );
