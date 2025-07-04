@@ -19,6 +19,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
 import CalendarPage from './pages/CalendarPage.jsx'; // 引入新的日历页面
+import ManageCategoriesPage from './pages/ManageCategoriesPage.jsx'; // 1. 引入新页面
 
 // 创建路由配置
 const router = createBrowserRouter([
@@ -44,6 +45,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <CalendarPage />
+      </ProtectedRoute>
+    ),
+  },
+   {
+    path: "/manage-categories", // 2. 添加新路由
+    element: (
+      <ProtectedRoute>
+        <ManageCategoriesPage />
       </ProtectedRoute>
     ),
   },
