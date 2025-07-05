@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';   // 1. 导入 Input 组件
-import { Label } from '@/components/ui/label';   // 1. 导入 Label 组件
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { toast } from "sonner" // 引入 toast
 import api from '../api';
 import { useAuth } from '../hooks/useAuth';
 import { LogIn } from 'lucide-react';
@@ -12,7 +13,6 @@ import { LogIn } from 'lucide-react';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -20,13 +20,14 @@ export default function LoginPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setIsLoading(true);
-    setError('');
     try {
       const response = await api.post('/auth/login', { email, password });
       login(response.data.token);
+      toast.success("登录成功", { description: "欢迎回来！" });
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.error || '登录失败，请重试。');
+      const errorMessage = err.response?.data?.error || '登录失败，请重试。';
+      toast.error("登录失败", { description: errorMessage });
     } finally {
       setIsLoading(false);
     }
@@ -46,7 +47,6 @@ export default function LoginPage() {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit}>
-            {/* 2. 使用新的 Input 和 Label 组件 */}
             <div className="grid w-full max-w-sm items-center gap-1.5">
               <Label htmlFor="email">邮箱地址</Label>
               <Input 
@@ -69,8 +69,6 @@ export default function LoginPage() {
                 required
               />
             </div>
-
-            {error && <p className="text-center text-sm text-red-600">{error}</p>}
             <div className="flex items-center justify-end">
               <div className="text-sm">
                 <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">还没有账户？去注册</Link>

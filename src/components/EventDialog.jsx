@@ -7,8 +7,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import api from '../api';
+import { toast } from "sonner";
 
-export default function EventDialog({ isOpen, setIsOpen, onSave, event, defaultDate, categories, onCategoryCreate }) {
+// 【關鍵改動】增加一個新的 prop: onDelete
+export default function EventDialog({ isOpen, setIsOpen, onSave, onDelete, event, defaultDate, categories, onCategoryCreate }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -16,7 +18,6 @@ export default function EventDialog({ isOpen, setIsOpen, onSave, event, defaultD
   const [recurrence, setRecurrence] = useState('none');
   const [reminderValue, setReminderValue] = useState('');
   const [reminderUnit, setReminderUnit] = useState('none');
-  // 【关键修复】使用 'none' 作为初始值和“无分类”的代表值，而不是空字符串
   const [categoryId, setCategoryId] = useState('none');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#ef4444');
@@ -31,7 +32,6 @@ export default function EventDialog({ isOpen, setIsOpen, onSave, event, defaultD
         setRecurrence(event.recurrence || 'none');
         setReminderValue(event.reminderValue || '');
         setReminderUnit(event.reminderUnit || 'none');
-        // 【关键修复】如果事件有关联的分类，则使用其ID，否则设为 'none'
         setCategoryId(event.categoryId ? String(event.categoryId) : 'none');
       } else { // 新建模式
         setTitle('');
@@ -56,28 +56,38 @@ export default function EventDialog({ isOpen, setIsOpen, onSave, event, defaultD
 
   const handleSave = () => {
     if (!title || !startTime || !endTime) {
-        alert("请填写所有必填项。");
+        toast.warning("请填写标题、开始时间和结束时间。");
         return;
     }
-    // 【关键修复】在保存时，将 'none' 转换回 null，以便后端正确处理
     const finalCategoryId = categoryId === 'none' ? null : categoryId;
     onSave({ title, description, startTime, endTime, recurrence, reminderValue, reminderUnit, categoryId: finalCategoryId });
   };
 
   const handleCreateCategory = async () => {
     if (!newCategoryName) {
-      alert("请输入新分类的名称。");
+      toast.warning("请输入新分类的名称。");
       return;
     }
     try {
       await api.post('/categories', { name: newCategoryName, color: newCategoryColor });
+      toast.success("分类创建成功！");
       setNewCategoryName('');
-      onCategoryCreate(); // 调用回调函数，刷新Dashboard的数据
-      alert("分类创建成功！");
+      if (onCategoryCreate) {
+        onCategoryCreate();
+      }
     } catch (err) {
-      alert("创建分类失败：" + (err.response?.data?.error || '未知错误'));
+      const errorMessage = err.response?.data?.error || '未知错误';
+      toast.error("创建分类失败", { description: errorMessage });
     }
   };
+  
+  // 【關鍵改動】新增一个处理删除点击的函数
+  const handleDelete = () => {
+    // 确保 onDelete 函数存在，并且当前是在编辑模式下 (有 event 对象)
+    if (onDelete && event) {
+      onDelete(event.id);
+    }
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -106,10 +116,9 @@ export default function EventDialog({ isOpen, setIsOpen, onSave, event, defaultD
            <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="category" className="text-right">分类</Label>
             <div className="col-span-3 flex items-center gap-2">
-              <Select value={categoryId} onValueChange={(value) => setCategoryId(value)}>
+              <Select value={categoryId} onValueChange={setCategoryId}>
                 <SelectTrigger><SelectValue placeholder="选择一个分类" /></SelectTrigger>
                 <SelectContent>
-                  {/* 【关键修复】将 value="" 改为 value="none" */}
                   <SelectItem value="none">无分类</SelectItem>
                   {categories && categories.map(cat => (
                     <SelectItem key={cat.id} value={String(cat.id)}>{cat.name}</SelectItem>
@@ -158,6 +167,12 @@ export default function EventDialog({ isOpen, setIsOpen, onSave, event, defaultD
           </div>
         </div>
         <DialogFooter>
+          {event && (
+            <Button variant="destructive" onClick={handleDelete} className="mr-auto">
+              删除日程
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => setIsOpen(false)}>取消</Button>
           <Button type="submit" onClick={handleSave}>保存</Button>
         </DialogFooter>
       </DialogContent>

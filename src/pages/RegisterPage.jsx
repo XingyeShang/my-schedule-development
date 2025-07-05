@@ -1,110 +1,87 @@
+// src/pages/RegisterPage.jsx
+
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import api from '../api'; // 引入我们统一的API客户端
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { toast } from "sonner";
+import api from '../api';
+import { UserPlus } from 'lucide-react';
 
 export default function RegisterPage() {
-  // 同样使用 useState 来管理输入状态
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(''); // 用于存储和显示错误信息
-  const navigate = useNavigate(); // 用于页面跳转
+  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleSubmit = async (event) => {
-    event.preventDefault(); // 阻止表单默认的提交行为
-    setError(''); // 清空旧的错误信息
-
-    // 对密码长度进行前端的基本验证
+    event.preventDefault();
     if (password.length < 6) {
-      setError('密码长度不能小于6位。');
-      return; // 停止执行后续代码
+      toast.warning("密码长度不能小于6位。");
+      return;
     }
-
+    setIsLoading(true);
     try {
-      // 关键区别：调用 /auth/register 接口
-      const response = await api.post('/auth/register', {
-        email,
-        password,
-      });
-
-      console.log('注册成功!', response.data);
-      alert('注册成功！现在您可以去登录了。');
-
-      // 关键区别：注册成功后，跳转到登录页面
+      await api.post('/auth/register', { email, password });
+      toast.success("注册成功！", { description: "现在您可以使用新账户登录了。" });
       navigate('/login');
-
     } catch (err) {
-      console.error('注册失败!', err);
-      // 从后端响应中获取错误信息
-      const errorMessage = err.response?.data?.error || '注册失败，请检查您的输入或稍后再试。';
-      setError(errorMessage);
+      const errorMessage = err.response?.data?.error || '注册失败，请重试。';
+      toast.error("注册失败", { description: errorMessage });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-900">
-      <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-2xl">
-        <h2 className="text-center text-3xl font-bold tracking-tight text-gray-900">
+    <div className="flex min-h-screen flex-col justify-center bg-gray-100 py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="flex justify-center">
+            <UserPlus size={48} className="text-indigo-600" />
+        </div>
+        <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
           创建您的新账户
         </h2>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="-space-y-px rounded-md shadow-sm">
-            <div>
-              <label htmlFor="email-address" className="sr-only">
-                邮箱地址
-              </label>
-              <input
-                id="email-address"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                className="relative block w-full appearance-none rounded-none rounded-t-md border border-gray-300 px-3 py-2 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                placeholder="邮箱地址"
+      </div>
+
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          <form className="space-y-6" onSubmit={handleSubmit}>
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="email">邮箱地址</Label>
+              <Input 
+                type="email" 
+                id="email" 
+                placeholder="请输入您的邮箱" 
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                required 
               />
             </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                密码
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                className="relative block w-full appearance-none rounded-none rounded-b-md border border-gray-300 px-3 py-2 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                placeholder="密码 (至少6位)"
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="password">密码</Label>
+              <Input 
+                type="password" 
+                id="password" 
+                placeholder="请输入至少6位密码" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                required
               />
             </div>
-          </div>
-          
-          {/* 在表单中显示错误信息 */}
-          {error && (
-            <p className="text-center text-sm text-red-600">
-              {error}
-            </p>
-          )}
-
-          <div className="flex items-center justify-between">
-            <div className="text-sm">
-              <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
-                已经有账户了？去登录
-              </Link>
+            <div className="flex items-center justify-end">
+              <div className="text-sm">
+                <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">已经有账户了？去登录</Link>
+              </div>
             </div>
-          </div>
-          <div>
-            <button
-              type="submit"
-              className="group relative flex w-full justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-            >
-              注 册
-            </button>
-          </div>
-        </form>
+            <div>
+              <Button type="submit" disabled={isLoading} className="w-full">
+                {isLoading ? '注册中...' : '注 册'}
+              </Button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

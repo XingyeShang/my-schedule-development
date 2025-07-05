@@ -1,12 +1,6 @@
-// =================================================================
-// 文件：src/pages/CalendarPage.jsx (功能修复与增强版)
-// =================================================================
-// 核心改动：
-// 1. 增加了获取用户分类列表的逻辑。
-// 2. 将获取到的分类列表和刷新分类的回调函数，传递给了 EventDialog 组件。
-// =================================================================
+// src/pages/CalendarPage.jsx
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react'; // <-- 修复：添加 useEffect
 import { useNavigate } from 'react-router-dom';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
@@ -15,16 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import EventDialog from '../components/EventDialog';
 import api from '../api';
+import { toast } from "sonner";
 
 export default function CalendarPage() {
   const navigate = useNavigate();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  
-  // 【关键改动】为分类列表创建新的 state
   const [categories, setCategories] = useState([]);
 
-  // 【关键改动】在组件加载时，获取所有分类
   useEffect(() => {
     fetchCategories();
   }, []);
@@ -51,7 +43,7 @@ export default function CalendarPage() {
       const endTime = new Date(eventData.endTime);
 
       if (isNaN(startTime.getTime()) || isNaN(endTime.getTime()) || endTime.getTime() <= startTime.getTime()) {
-        alert("请提供有效的开始和结束日期时间，且结束时间必须在开始时间之后！");
+        toast.error("时间设置错误", { description: "结束时间必须在开始时间之后！" });
         return;
       }
       
@@ -60,7 +52,6 @@ export default function CalendarPage() {
         description: eventData.description,
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
-        // 确保将所有数据都发送给后端
         recurrence: eventData.recurrence === 'none' ? null : eventData.recurrence,
         reminderValue: eventData.reminderUnit !== 'none' && eventData.reminderValue > 0 ? parseInt(eventData.reminderValue, 10) : null,
         reminderUnit: eventData.reminderUnit !== 'none' && eventData.reminderValue > 0 ? eventData.reminderUnit : null,
@@ -68,12 +59,11 @@ export default function CalendarPage() {
       };
 
       await api.post('/events', payload);
-      setIsDialogOpen(false);
-      alert('日程创建成功！');
+      toast.success("日程创建成功！");
       navigate('/');
     } catch (err) {
-      console.error("保存失败", err);
-      alert("保存失败，请检查您的输入。");
+      console.error("保存失败:", err);
+      toast.error("保存失败", { description: "请检查您的输入或稍后再试。" });
     }
   };
 
@@ -108,8 +98,6 @@ export default function CalendarPage() {
           <Button variant="outline" onClick={() => navigate('/')} className="w-full mt-2">返回主面板</Button>
         </div>
       </div>
-      
-      {/* 【关键改动】将分类数据和刷新函数传递给对话框 */}
       <EventDialog 
         isOpen={isDialogOpen} 
         setIsOpen={setIsDialogOpen} 

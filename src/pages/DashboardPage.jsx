@@ -1,210 +1,240 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { useAuth } from '../hooks/useAuth';
 import api from '../api';
 import EventDialog from '../components/EventDialog';
-import { Plus, Edit, Trash2, LogOut, CalendarHeart, Repeat, Bell } from 'lucide-react';
-import { Settings } from 'lucide-react'; // 引入新图标
+import { Plus, LogOut, CalendarHeart, Settings, Search, List } from 'lucide-react';
+import { toast } from "sonner";
+
+// FullCalendar 相关的导入
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
+import { formatISO } from 'date-fns';
 
 export default function DashboardPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
-  const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  
+  // 为筛选和搜索功能创建新的状态
+  const [filterCategoryId, setFilterCategoryId] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // 创建一个对 FullCalendar 的引用，以便调用其API
+  const calendarRef = useRef(null);
 
   useEffect(() => {
-    fetchData();
+    // 初次加载时，获取分类数据
+    fetchCategories();
   }, []);
+  
+  // 当筛选条件或搜索词变化时，让日历重新获取事件
+  useEffect(() => {
+    // 使用防抖技术，避免用户每次按键都触发刷新
+    const debounce = setTimeout(() => {
+      if (calendarRef.current) {
+        calendarRef.current.getApi().refetchEvents();
+      }
+    }, 500); // 用户停止输入500毫秒后执行
 
-  const fetchData = async () => {
-    setIsLoading(true);
+    return () => clearTimeout(debounce);
+  }, [filterCategoryId, searchTerm]);
+
+  const fetchCategories = async () => {
     try {
-      const [eventsRes, categoriesRes] = await Promise.all([
-        api.get('/events'),
-        api.get('/categories')
-      ]);
-      setEvents(eventsRes.data);
-      setCategories(categoriesRes.data);
+      const response = await api.get('/categories');
+      setCategories(response.data);
     } catch (err) {
-      console.error("获取数据失败:", err);
-    } finally {
-      setIsLoading(false);
+      console.error("获取分类失败:", err);
+      toast.error("获取分类失败");
+    }
+  };
+
+  // 这个函数现在作为 FullCalendar 的 events 属性，由日历在需要时自动调用
+  const fetchEvents = async (fetchInfo, successCallback, failureCallback) => {
+    try {
+      const response = await api.get('/events', {
+        params: {
+          start: formatISO(fetchInfo.start),
+          end: formatISO(fetchInfo.end),
+          categoryId: filterCategoryId === 'all' ? undefined : filterCategoryId,
+          search: searchTerm || undefined,
+        }
+      });
+      
+      // 将我们的日程数据转换成 FullCalendar 能识别的格式
+      const formattedEvents = response.data.map(event => {
+        const category = categories.find(c => c.id === event.categoryId);
+        return {
+          id: event.id,
+          title: event.title,
+          start: event.startTime,
+          end: event.endTime,
+          backgroundColor: category ? category.color : '#3788d8', // 默认蓝色
+          borderColor: category ? category.color : '#3788d8',
+          extendedProps: event, // 保存原始数据
+        };
+      });
+      successCallback(formattedEvents);
+    } catch (err) {
+      console.error("获取日程失败:", err);
+      toast.error("获取日程失败");
+      if (failureCallback) {
+        failureCallback(err);
+      }
     }
   };
   
   const handleLogout = () => { logout(); navigate('/login'); };
 
-  const handleEditClick = (event) => {
-    setSelectedEvent(event);
+  const handleEventClick = (clickInfo) => {
+    // 当用户点击日历上的一个日程时
+    setSelectedEvent(clickInfo.event.extendedProps);
     setIsDialogOpen(true);
   };
 
-    const handleSaveEvent = async (eventData) => {
-    if (!selectedEvent) return; 
+  const handleEventChange = async (changeInfo) => {
+    // 当用户拖拽或调整日程大小后
     try {
-      const payload = {
-        title: eventData.title,
-        description: eventData.description,
-        startTime: eventData.startTime,
-        endTime: eventData.endTime,
-        recurrence: eventData.recurrence === 'none' ? null : eventData.recurrence,
-        // 这部分逻辑已经能正确处理从 EventDialog 传来的 null 或数字ID
-        categoryId: eventData.categoryId ? parseInt(eventData.categoryId, 10) : null,
-      };
-
-      if (eventData.reminderUnit !== 'none' && eventData.reminderValue > 0) {
-        payload.reminderValue = parseInt(eventData.reminderValue, 10);
-        payload.reminderUnit = eventData.reminderUnit;
-      } else {
-        payload.reminderValue = null;
-        payload.reminderUnit = null;
-      }
-
-      await api.put(`/events/${selectedEvent.id}`, payload);
-      setIsDialogOpen(false);
-      setSelectedEvent(null);
-      fetchData();
+      await api.put(`/events/${changeInfo.event.id}`, {
+        startTime: changeInfo.event.start.toISOString(),
+        endTime: changeInfo.event.end.toISOString(),
+      });
+      toast.success("日程时间已更新");
     } catch (err) {
-      console.error("保存失败", err);
-      alert("保存失败，请检查您的输入。");
+      console.error("更新日程失败:", err);
+      toast.error("更新日程失败");
+      changeInfo.revert(); // 如果失败，让日程回到原来位置
     }
   };
 
+  const handleSaveEvent = async (eventData) => {
+    // 保存逻辑不变，但成功后需要刷新日历
+    try {
+      if (selectedEvent) {
+        await api.put(`/events/${selectedEvent.id}`, eventData);
+        toast.success("日程已成功更新！");
+        setIsDialogOpen(false);
+        setSelectedEvent(null);
+        calendarRef.current.getApi().refetchEvents(); // 刷新日历事件
+      }
+    } catch (err) {
+      console.error("保存失败:", err);
+      toast.error("保存失败");
+    }
+  };
+
+  // 与 FullCalendar 配合的乐观更新删除逻辑
   const handleDeleteEvent = async (eventId) => {
-    if (window.confirm('您确定要删除这个日程（及其所有重复项）吗？')) {
-      try {
-        await api.delete(`/events/${eventId}`);
-        fetchData();
-      } catch (err) {
-        console.error("删除失败", err);
-        alert("删除失败！");
+    if (!window.confirm('您确定要删除这个日程吗？此操作不可撤销。')) {
+      return;
+    }
+
+    const calendarApi = calendarRef.current.getApi();
+    const eventToRemove = calendarApi.getEventById(eventId);
+
+    if (eventToRemove) {
+      eventToRemove.remove();
+    }
+    
+    setIsDialogOpen(false);
+    setSelectedEvent(null);
+
+    try {
+      await api.delete(`/events/${eventId}`);
+      toast.success("日程已成功删除。");
+    } catch (err) {
+      console.error("删除失败:", err);
+      toast.error("删除失败！", {
+        description: "无法连接到服务器，您的改动已撤销。",
+      });
+      if (eventToRemove) {
+        calendarApi.addEvent(eventToRemove.toPlainObject());
       }
     }
   };
-
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    show: { opacity: 1, transition: { staggerChildren: 0.1 } },
-  };
-
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    show: { y: 0, opacity: 1 },
-  };
-
-  const translateUnit = (unit) => {
-    const map = { minutes: '分钟', hours: '小时', days: '天' };
-    return map[unit] || unit;
-  }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      <nav className="bg-white/80 backdrop-blur-lg border-b border-gray-200/50 fixed top-0 left-0 right-0 z-10">
+    <div className="flex flex-col h-screen bg-gray-50 font-sans">
+      <nav className="bg-white border-b border-gray-200">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 justify-between">
-            <div className="flex items-center">
+            <div className="flex items-center gap-4">
               <div className="flex-shrink-0 flex items-center gap-2">
                 <CalendarHeart className="h-8 w-8 text-pink-500" />
-                <span className="text-xl font-bold text-gray-800">我的日程</span>
+                <span className="text-xl font-bold text-gray-800">我的日历</span>
               </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="搜索日程..."
+                  className="w-full pl-10"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="筛选分类" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有分类</SelectItem>
+                  {categories.map(cat => (
+                    <SelectItem key={cat.id} value={String(cat.id)}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="flex items-center">
-              <button onClick={handleLogout} type="button" className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 transition-all hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5 active:scale-95">
-                <LogOut className="h-4 w-4" />
-                退出登录
-              </button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => navigate('/all-events')}><List className="mr-2 h-4 w-4" /> 所有日程</Button>
+              <Button variant="outline" onClick={() => navigate('/manage-categories')}><Settings className="mr-2 h-4 w-4" /> 管理分类</Button>
+              <Button onClick={() => navigate('/calendar')}><Plus className="mr-2 h-4 w-4" /> 新建日程</Button>
+              <button onClick={handleLogout} type="button" className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 transition-all hover:bg-gray-50"><LogOut className="h-4 w-4" />退出登录</button>
             </div>
           </div>
         </div>
       </nav>
-      <div className="pt-24 pb-10">
-        <header className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold ...">日程主面板</h1>
-          <p className="mt-2 text-sm ...">在这里管理您的所有日程安排。</p>
-        </div>
-        <div className="flex items-center gap-2"> {/* 用一个容器包裹按钮 */}
-          <Button variant="outline" onClick={() => navigate('/manage-categories')}>
-            <Settings className="mr-2 h-4 w-4" /> 管理分类
-          </Button>
-          <Button onClick={() => navigate('/calendar')}>
-            <Plus className="mr-2 h-4 w-4" /> 新建日程
-          </Button>
-        </div>
-      </div>
-    </header>
-        <main>
-          <div className="mx-auto max-w-7xl sm:px-6 lg:px-8 mt-8">
-            {isLoading ? (
-              <p className="text-center text-gray-500">正在加载日程...</p>
-            ) : (
-              <motion.div 
-                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-                variants={containerVariants}
-                initial="hidden"
-                animate="show"
-              >
-                {events.length > 0 ? (
-                  events.map(event => {
-                    const category = categories.find(c => c.id === event.categoryId);
-                    return (
-                      <motion.div key={event.id || event.recurrentEventId} variants={itemVariants}>
-                        <Card 
-                          className="flex flex-col h-full transition-all hover:shadow-lg border-l-4"
-                          style={{ borderColor: category ? category.color : 'transparent' }}
-                        >
-                          <CardHeader>
-                            <CardTitle className="truncate">{event.title}</CardTitle>
-                            <CardDescription>{new Date(event.startTime).toLocaleDateString()}</CardDescription>
-                          </CardHeader>
-                          <CardContent className="flex-grow">
-                            <p className="text-sm text-gray-600">{event.description || '无描述'}</p>
-                            <div className="text-xs text-gray-500 mt-4 space-y-1">
-                              {event.recurrence && <p className="flex items-center gap-1"><Repeat size={12} /> 每{ {daily:'天', weekly:'周', monthly:'月'}[event.recurrence] }重复</p>}
-                              {event.reminderUnit && <p className="flex items-center gap-1"><Bell size={12} /> 提前 {event.reminderValue} {translateUnit(event.reminderUnit)}提醒</p>}
-                            </div>
-                          </CardContent>
-                          <CardFooter className="flex justify-between items-center pt-4 border-t">
-                            <div className="text-xs text-gray-500">
-                                <p>结束于: {new Date(event.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                            </div>
-                            <div className="flex gap-2">
-                               <Button variant="ghost" size="icon" onClick={() => handleEditClick(event)}>
-                                 <Edit className="h-4 w-4" />
-                               </Button>
-                               <Button variant="destructive" size="icon" onClick={() => handleDeleteEvent(event.id)}>
-                                 <Trash2 className="h-4 w-4" />
-                               </Button>
-                            </div>
-                          </CardFooter>
-                        </Card>
-                      </motion.div>
-                    )
-                  })
-                ) : (
-                  <div className="md:col-span-3 text-center py-12 px-4 border-2 border-dashed border-gray-300 rounded-lg bg-white/50">
-                    <p className="text-gray-500">您还没有任何日程，快去创建一个吧！</p>
-                  </div>
-                )}
-              </motion.div>
-            )}
-          </div>
-        </main>
-      </div>
+      
+      <main className="flex-grow p-4">
+        <FullCalendar
+          ref={calendarRef}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          headerToolbar={{
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+          }}
+          initialView="dayGridMonth"
+          locale="zh-cn"
+          buttonText={{ today: '今天', month: '月', week: '周', day: '日' }}
+          events={fetchEvents}
+          editable={true}
+          selectable={true}
+          eventClick={handleEventClick}
+          eventDrop={handleEventChange}
+          eventResize={handleEventChange}
+        />
+      </main>
+      
       <EventDialog 
         isOpen={isDialogOpen} 
         setIsOpen={setIsDialogOpen} 
         onSave={handleSaveEvent} 
+        onDelete={handleDeleteEvent}
         event={selectedEvent} 
         categories={categories}
-        onCategoryCreate={fetchData}
+        onCategoryCreate={() => {
+          fetchCategories();
+          calendarRef.current.getApi().refetchEvents();
+        }}
       />
     </div>
   );
