@@ -16,48 +16,66 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { formatISO } from 'date-fns';
 
+// 引入 React Query 的核心钩子
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+// 将API调用逻辑抽离出来，以便在 useQuery 和 useMutation 中复用
+const fetchCategories = async () => {
+  const response = await api.get('/categories');
+  return response.data;
+};
+
+const updateEvent = async (eventData) => {
+  // 如果是拖拽更新，只发送时间和ID
+  if (eventData.startTime && eventData.endTime && !eventData.title) {
+     const response = await api.put(`/events/${eventData.id}`, {
+        startTime: eventData.startTime,
+        endTime: eventData.endTime,
+     });
+     return response.data;
+  }
+  // 否则是完整的表单更新
+  const response = await api.put(`/events/${eventData.id}`, eventData);
+  return response.data;
+};
+
+const deleteEvent = async (eventId) => {
+  await api.delete(`/events/${eventId}`);
+};
+
+
 export default function DashboardPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
-  const [categories, setCategories] = useState([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  
-  // 为筛选和搜索功能创建新的状态
   const [filterCategoryId, setFilterCategoryId] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // 创建一个对 FullCalendar 的引用，以便调用其API
   const calendarRef = useRef(null);
-
-  useEffect(() => {
-    // 初次加载时，获取分类数据
-    fetchCategories();
-  }, []);
   
+  const queryClient = useQueryClient();
+
+  // 使用 useQuery 来获取分类数据，并处理错误
+  const { data: categories = [], isLoading: isLoadingCategories } = useQuery({
+    queryKey: ['categories'],
+    queryFn: fetchCategories,
+    onError: (err) => {
+      console.error("获取分类失败:", err);
+      toast.error("获取分类失败", { description: "无法从服务器加载分类数据。" });
+    }
+  });
+
   // 当筛选条件或搜索词变化时，让日历重新获取事件
   useEffect(() => {
-    // 使用防抖技术，避免用户每次按键都触发刷新
     const debounce = setTimeout(() => {
       if (calendarRef.current) {
         calendarRef.current.getApi().refetchEvents();
       }
-    }, 500); // 用户停止输入500毫秒后执行
-
+    }, 500);
     return () => clearTimeout(debounce);
-  }, [filterCategoryId, searchTerm]);
+  }, [filterCategoryId, searchTerm, categories]); // categories 加入依赖，确保分类颜色能及时更新
 
-  const fetchCategories = async () => {
-    try {
-      const response = await api.get('/categories');
-      setCategories(response.data);
-    } catch (err) {
-      console.error("获取分类失败:", err);
-      toast.error("获取分类失败");
-    }
-  };
-
-  // 这个函数现在作为 FullCalendar 的 events 属性，由日历在需要时自动调用
+  // FullCalendar 的事件获取函数
   const fetchEvents = async (fetchInfo, successCallback, failureCallback) => {
     try {
       const response = await api.get('/events', {
@@ -68,96 +86,112 @@ export default function DashboardPage() {
           search: searchTerm || undefined,
         }
       });
-      
-      // 将我们的日程数据转换成 FullCalendar 能识别的格式
       const formattedEvents = response.data.map(event => {
         const category = categories.find(c => c.id === event.categoryId);
         return {
-          id: event.id,
+          id: String(event.id),
           title: event.title,
           start: event.startTime,
           end: event.endTime,
-          backgroundColor: category ? category.color : '#3788d8', // 默认蓝色
+          backgroundColor: category ? category.color : '#3788d8',
           borderColor: category ? category.color : '#3788d8',
-          extendedProps: event, // 保存原始数据
+          extendedProps: event,
         };
       });
       successCallback(formattedEvents);
     } catch (err) {
-      console.error("获取日程失败:", err);
       toast.error("获取日程失败");
-      if (failureCallback) {
-        failureCallback(err);
-      }
+      if (failureCallback) failureCallback(err);
     }
   };
   
   const handleLogout = () => { logout(); navigate('/login'); };
 
   const handleEventClick = (clickInfo) => {
-    // 当用户点击日历上的一个日程时
     setSelectedEvent(clickInfo.event.extendedProps);
     setIsDialogOpen(true);
   };
 
-  const handleEventChange = async (changeInfo) => {
-    // 当用户拖拽或调整日程大小后
-    try {
-      await api.put(`/events/${changeInfo.event.id}`, {
+  // 【关键修复】创建并使用 eventChangeMutation 来处理拖拽更新
+  const eventChangeMutation = useMutation({
+    mutationFn: updateEvent,
+    onSuccess: () => {
+      toast.success("日程时间已更新");
+    },
+    onError: (err, variables, context) => {
+      toast.error("更新日程失败");
+      context.revert(); // 使用 context 中的 revert 函数来回滚UI
+    }
+  });
+
+  const handleEventChange = (changeInfo) => {
+    eventChangeMutation.mutate(
+      {
+        id: changeInfo.event.id,
         startTime: changeInfo.event.start.toISOString(),
         endTime: changeInfo.event.end.toISOString(),
-      });
-      toast.success("日程时间已更新");
-    } catch (err) {
-      console.error("更新日程失败:", err);
-      toast.error("更新日程失败");
-      changeInfo.revert(); // 如果失败，让日程回到原来位置
-    }
-  };
-
-  const handleSaveEvent = async (eventData) => {
-    // 保存逻辑不变，但成功后需要刷新日历
-    try {
-      if (selectedEvent) {
-        await api.put(`/events/${selectedEvent.id}`, eventData);
-        toast.success("日程已成功更新！");
-        setIsDialogOpen(false);
-        setSelectedEvent(null);
-        calendarRef.current.getApi().refetchEvents(); // 刷新日历事件
+      },
+      {
+        // 将 revert 函数传递给 context，以便在 onError 中调用
+        context: { revert: changeInfo.revert }
       }
-    } catch (err) {
-      console.error("保存失败:", err);
-      toast.error("保存失败");
-    }
+    );
   };
 
-  // 与 FullCalendar 配合的乐观更新删除逻辑
-  const handleDeleteEvent = async (eventId) => {
-    if (!window.confirm('您确定要删除这个日程吗？此操作不可撤销。')) {
-      return;
+  // 使用 useMutation 来处理对话框中的保存操作
+  const saveEventMutation = useMutation({
+    mutationFn: updateEvent,
+    onSuccess: () => {
+      toast.success("日程已成功更新！");
+      calendarRef.current.getApi().refetchEvents();
+    },
+    onError: (err) => {
+      console.error("更新失败:", err);
+      toast.error("更新失败", { description: "请检查您的输入或稍后再试。" });
     }
+  });
 
-    const calendarApi = calendarRef.current.getApi();
-    const eventToRemove = calendarApi.getEventById(eventId);
-
-    if (eventToRemove) {
-      eventToRemove.remove();
-    }
-    
+  const handleSaveEvent = (eventData) => {
+    if (!selectedEvent) return;
+    saveEventMutation.mutate({ ...eventData, id: selectedEvent.id });
     setIsDialogOpen(false);
     setSelectedEvent(null);
+  };
 
-    try {
-      await api.delete(`/events/${eventId}`);
+  // 使用 useMutation 来处理删除操作，并实现乐观更新
+  const deleteEventMutation = useMutation({
+    mutationFn: deleteEvent,
+    onSuccess: () => {
       toast.success("日程已成功删除。");
-    } catch (err) {
-      console.error("删除失败:", err);
-      toast.error("删除失败！", {
-        description: "无法连接到服务器，您的改动已撤销。",
-      });
+    },
+    // 【关键修复】实现真正的乐观更新回滚
+    onMutate: async (eventId) => {
+      await queryClient.cancelQueries({ queryKey: ['events'] });
+      const calendarApi = calendarRef.current.getApi();
+      const eventToRemove = calendarApi.getEventById(String(eventId));
       if (eventToRemove) {
-        calendarApi.addEvent(eventToRemove.toPlainObject());
+        eventToRemove.remove();
+        return { eventToRemove }; // 返回被移除的事件，以便在失败时回滚
       }
+      return {};
+    },
+    onError: (err, eventId, context) => {
+      console.error("删除失败:", err);
+      toast.error("删除失败！", { description: "您的改动已撤销。" });
+      if (context.eventToRemove) {
+        calendarRef.current.getApi().addEvent(context.eventToRemove.toPlainObject());
+      }
+    },
+    onSettled: () => {
+      calendarRef.current.getApi().refetchEvents();
+    },
+  });
+
+  const handleDeleteEvent = (eventId) => {
+    if (window.confirm('您确定要删除这个日程吗？')) {
+      deleteEventMutation.mutate(eventId);
+      setIsDialogOpen(false);
+      setSelectedEvent(null);
     }
   };
 
@@ -181,7 +215,7 @@ export default function DashboardPage() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
+              <Select value={filterCategoryId} onValueChange={setFilterCategoryId} disabled={isLoadingCategories}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="筛选分类" />
                 </SelectTrigger>
@@ -232,8 +266,7 @@ export default function DashboardPage() {
         event={selectedEvent} 
         categories={categories}
         onCategoryCreate={() => {
-          fetchCategories();
-          calendarRef.current.getApi().refetchEvents();
+          queryClient.invalidateQueries({ queryKey: ['categories'] });
         }}
       />
     </div>
