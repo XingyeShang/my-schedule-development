@@ -10,7 +10,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:3000', // 你的后端API地址
+  baseURL: 'https://my-schedule-api-86a9.onrender.com', // 你的后端API地址
 });
 
 // 【关键改动】添加响应拦截器
